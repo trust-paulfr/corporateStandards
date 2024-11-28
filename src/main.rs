@@ -10,71 +10,51 @@ use std::process::Command;
 use tokio::runtime::Runtime;
 use reqwest::Client;
 use tokio::time::{sleep, Duration};
+use windows::{
+    core::PCWSTR,
+    Win32::System::Registry::{RegSetValueExW, RegOpenKeyExW, HKEY_CURRENT_USER, REG_SZ, KEY_SET_VALUE},
+    Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_SETDESKWALLPAPER, SPIF_UPDATEINIFILE, SPIF_SENDCHANGE},
+};
 
-async fn download_image(url: &str, destination: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    let response = reqwest::get(url).await?;
-    let mut file = File::create(destination)?;
-    let content = response.bytes().await?;
-    copy(&mut content.as_ref(), &mut file)?;
-    Ok(())
-}
-
-async fn change_wallpaper(current_uuid: &str, last_uuid: &str, url: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn change_wallpaper(current_uuid: &str) -> Result<(), Box<dyn std::error::Error>> {
     let downloads_dir = dirs::download_dir().expect("Could not find the Downloads directory");
     let destination_path = downloads_dir.join(format!("{}.jpg", current_uuid));
-
-    if !last_uuid.is_empty() {
-        let last_path = downloads_dir.join(format!("{}.jpg", last_uuid));
-        if last_path.exists() {
-            fs::remove_file(&last_path)?;
-        }
-    }
-
-    download_image(url, &destination_path).await?;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let key = hkcu.open_subkey_with_flags("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System", KEY_WRITE)?;
     key.set_value("Wallpaper", &destination_path.to_str().unwrap())?;
 
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let output = Command::new("RUNDLL32.EXE")
-        .args(&["USER32.DLL,UpdatePerUserSystemParameters"])
-        .output()?;
-
-    if output.status.success() {
-        println!("Command executed successfully: {:?}", output);
-    } else {
-        eprintln!("Command failed with error: {:?}", output);
-    }
+    println!("Changing wallpaper to {}", destination_path.to_str().unwrap());
 
 
     Ok(())
 }
 
-async fn check_uuid_and_update_wallpaper() {
-    let client = Client::new();
-    let mut last_uuid = String::new();
-
-    loop {
-        let response = client.get("https://cachalot.inoctet.fr/uuid").send().await.expect("Failed to get UUID");
-        let current_uuid = response.text().await.expect("Failed to read UUID");
-
-        if current_uuid != last_uuid {
-            last_uuid = current_uuid.clone();
-
-            if let Err(e) = change_wallpaper(&current_uuid, &last_uuid, "https://cachalot.inoctet.fr/get").await {
-                eprintln!("Failed to change wallpaper: {}", e);
-            } else {
-                println!("The Wallpaper value has been updated successfully.");
-            }
-        }
-
-        sleep(Duration::from_secs(1)).await;
-    }
-}
+//#[tokio::main]
+//async fn main() {
+//    check_uuid_and_update_wallpaper().await;
+//}
 
 #[tokio::main]
-async fn main() {
-    check_uuid_and_update_wallpaper().await;
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // make an bool, by default it's false, if it's false change wallpaper to uuidvar 1 also change bool to true and if it's true change wallpaper to uuidvar 2
+    let mut bool = false;
+    let mut uuidvar1 = "1";
+    let mut uuidvar2 = "2";
+
+    loop {
+        let mut current_uuid = uuidvar1;
+        if bool {
+            current_uuid = uuidvar2;
+        }
+
+        change_wallpaper(current_uuid).await?;
+
+        bool = !bool;
+        sleep(Duration::from_secs(1)).await;
+    }
+
+    Ok(())
 }
